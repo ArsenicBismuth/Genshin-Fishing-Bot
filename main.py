@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import mouse
 import time
-from multiprocessing import Pool, freeze_support
 from mss import mss
 from threading import Thread, active_count
 
@@ -184,5 +183,4 @@ def main():
         # print()
         
 if __name__ == "__main__":
-    freeze_support()
     main()
