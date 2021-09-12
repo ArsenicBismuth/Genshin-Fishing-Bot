@@ -9,6 +9,7 @@ from threading import Thread, active_count
 # https://stackoverflow.com/questions/34712480/finding-an-icon-in-an-image
 # https://stackoverflow.com/questions/8533318/multiprocessing-pool
 # https://stackoverflow.com/questions/58293187/opencv-real-time
+# https://stackoverflow.com/questions/52735231/how-to-select-all-non-black-pixels
 
 off = [0,-45*0]  # Set 0 to 1 if not in event fishing spot
 co = [740,1175,220+off[1],255+off[1]] # x1,x2,y1,y2
@@ -46,6 +47,10 @@ class ThreadedScreen(object):
         img = img[:, :, :3]   # Remove alpha
         # img = img[::2, ::2, :] # Downscale
         # img = img[:, :, ::-1] # Reverse BGR => RGB
+        img = preproc(img)
+        
+        # cv2.imshow("", img)
+        # cv2.waitKey(0) 
         return img
 
 # Async template matching
@@ -86,9 +91,22 @@ class ThreadedLocate(object):
         return np.array([max_loc[0] + w/2, max_loc[1] + h/2]), max_val
     
     
+def display(img, bar, left, right, target):
+
+    img = np.ascontiguousarray(img, dtype=np.uint8)
+
+    # Point location display (x,y)
+    cv2.circle(img, (int(bar[0]), int(bar[1])), radius=0, color=(0, 0, 255), thickness=4)
+    cv2.circle(img, (int(left[0]), int(left[1])), radius=0, color=(0, 255, 0), thickness=4)
+    cv2.circle(img, (int(right[0]), int(right[1])), radius=0, color=(255, 0, 0), thickness=4)
     
+    cv2.imshow('Fishing', img)
+    
+
 def preproc(img):
     # img = img[:, :, 0] # Extract blue only (more contrast vs grayscale)
+    # Remove anything not yellow by masking using boolean array.
+    img[~np.all(img == [192,255,255], axis=-1)] = [0,0,0]
     return img
     
 def printbar(bar, left, right):
@@ -108,25 +126,27 @@ def main():
     left_t = preproc(cv2.imread("./template/left.png"))
     right_t = preproc(cv2.imread("./template/right.png"))
     # Load masks
-    bar_m = preproc(cv2.imread("./template/bar_mask.png"))
-    left_m = preproc(cv2.imread("./template/left_mask.png"))
-    right_m = preproc(cv2.imread("./template/right_mask.png"))
+    bar_m = cv2.imread("./template/bar_mask.png")
+    left_m = cv2.imread("./template/left_mask.png")
+    right_m = cv2.imread("./template/right_mask.png")
     
     # Initialize threads
+    print("Initializing threads...")
     capture = ThreadedScreen()
     # mouse = ThreadedClick()
-    time.sleep(1) # Wait till thread get result
+    time.sleep(1) # Wait for initial result
     
     img = capture.grab_frame()
     
     bar_th = ThreadedLocate(img, bar_t, bar_m)
     left_th = ThreadedLocate(img, left_t, left_m)
     right_th = ThreadedLocate(img, right_t, right_m)
-    bar_th.set(img)
-    left_th.set(img)
-    right_th.set(img)
-    time.sleep(1) # Wait till thread get result
+    time.sleep(1) # Wait for initial result
     
+    # Indexing
+    n = 0
+    
+    print("Started.")
     while True:
         start = time.time()
         
@@ -142,7 +162,8 @@ def main():
         right, right_val = right_th.get()
         
         # Target is between the two limiters
-        target = left + (right-left) * 0.5
+        width = right-left
+        target = left + width * 0.5
         val = min(bar_val, left_val, right_val)
         
         # Validations
@@ -155,31 +176,46 @@ def main():
         # Mouse
         if (valid):
             
-            # x as set point
-            if (bar[0] <= target[0] * 1.0):
-                mouse.press("left")
-                # pyautogui.mouseDown(co[0],co[2])
-                
-                # Hold, don't stop till overshoot
-            elif (bar[0] > target[0] * 1.0):
-                mouse.release("left")
-                # pyautogui.mouseUp()
-                
             # Utilities
             printbar(bar[0], left[0], right[0])
             # print(" %.1fFPS"%fps, end=" ")
+            
+            # Constant control system
+            if (0 < target[0]-bar[0] < width[0]*0.5):
+                if (n == 0):
+                    print("o", end="")
+                    mouse.click("left")
+                elif (n >= 2):
+                    n = -1
+                n += 1
+            
+            # x as set point
+            elif (bar[0] <= target[0] * 1.0):
+                print("oo", end="")
+                mouse.press("left")
+                # pyautogui.mouseDown(co[0],co[2])
+                
+            # Hold, don't stop till overshoot
+            elif (bar[0] > target[0] * 1.0):
+                print("", end="")
+                mouse.release("left")
+                # pyautogui.mouseUp()
+                
             print()
         
         # Utilities
+        display(img.copy(), bar, left, right, target)
         frame_time = time.time() - start
         if fps_limit>0:
             time.sleep(max(1.0/fps_limit - frame_time, 0))
         fps = 1.0 / (time.time() - start)
+        
+        # Wait 1ms before continuing, ESC to exit
+        if cv2.waitKey(1) == 27:
+            break
                 
         # print(active_count(), end="")
         # print(" %.1fFPS"%fps, end=" ")
-        # print("%.1fFPS"%fps, "%.2f"%val, target[0], bar[0], right[0])
-        # print("%.2f"%val, target[0], bar[0], right[0])
         # print()
         
 if __name__ == "__main__":
