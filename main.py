@@ -11,8 +11,8 @@ from threading import Thread, active_count
 # https://stackoverflow.com/questions/58293187/opencv-real-time
 # https://stackoverflow.com/questions/52735231/how-to-select-all-non-black-pixels
 
-off = [0,-45*0]  # Set 0 to 1 if not in event fishing spot
-co = [740,1175,220+off[1],255+off[1]] # x1,x2,y1,y2
+off = 1  # Set 0 for event fishing
+co = [740,1175,220-45*off,255] # x1,x2,y1,y2
 mon = {"top": co[2], "left": co[0], "width": co[1]-co[0], "height": co[3]-co[2]}
 sct = mss()     # Screenshot
 fps_limit = 60  # fps limit
@@ -33,7 +33,8 @@ class ThreadedScreen(object):
         while True:
             start = time.time()
             self.frame = self.image()
-            # print(1.0/(time.time() - start)) # FPS
+            limitfps(start, fps_limit) # 40 FPS limit => 30 FPS
+            # printfps(start)
 
     def grab_frame(self):
         return self.frame
@@ -70,8 +71,10 @@ class ThreadedLocate(object):
 
     def update(self):
         while True:
+            start = time.time()
             self.loc, self.value = self.locate(self.img, self.t, self.m)
-            # print(1.0/(time.time() - start)) # FPS
+            limitfps(start, fps_limit)  # 500 FPS unlocked
+            # printfps(start)
     
     def set(self, img):
         self.img = img
@@ -91,6 +94,16 @@ class ThreadedLocate(object):
         return np.array([max_loc[0] + w/2, max_loc[1] + h/2]), max_val
     
     
+def printfps(ptime, end="\n"):
+    d = time.time() - ptime
+    fps = 0 if (d == 0) else 1.0/d
+    print("%.1f"%fps, end=end) # FPS
+
+def limitfps(ptime, limit):
+    d = time.time() - ptime # frame_time
+    if limit>0:
+        time.sleep(max(1.0/limit - d, 0))
+    
 def display(img, bar, left, right, target):
 
     img = np.ascontiguousarray(img, dtype=np.uint8)
@@ -101,10 +114,10 @@ def display(img, bar, left, right, target):
     cv2.circle(img, (int(right[0]), int(right[1])), radius=0, color=(255, 0, 0), thickness=4)
     
     cv2.imshow('Fishing', img)
-    
 
 def preproc(img):
-    # img = img[:, :, 0] # Extract blue only (more contrast vs grayscale)
+    # Extract blue only (more contrast vs grayscale)
+    # img = img[:, :, 0] 
     # Remove anything not yellow by masking using boolean array.
     img[~np.all(img == [192,255,255], axis=-1)] = [0,0,0]
     return img
@@ -178,7 +191,7 @@ def main():
             
             # Utilities
             printbar(bar[0], left[0], right[0])
-            # print(" %.1fFPS"%fps, end=" ")
+            # printfps(start, " ")
             
             # Constant control system
             if (0 < target[0]-bar[0] < width[0]*0.5):
@@ -204,18 +217,16 @@ def main():
             print()
         
         # Utilities
-        display(img.copy(), bar, left, right, target)
-        frame_time = time.time() - start
-        if fps_limit>0:
-            time.sleep(max(1.0/fps_limit - frame_time, 0))
-        fps = 1.0 / (time.time() - start)
+        display(img, bar, left, right, target)
         
-        # Wait 1ms before continuing, ESC to exit
-        if cv2.waitKey(1) == 27:
+        # Wait 1ms to accept input before continuing
+        key = cv2.waitKey(1)
+        # print(key)
+        if key == 27: # ESC
             break
-                
-        # print(active_count(), end="")
-        # print(" %.1fFPS"%fps, end=" ")
+            
+        limitfps(start, fps_limit)
+        # printfps(start, " ")
         # print()
         
 if __name__ == "__main__":
